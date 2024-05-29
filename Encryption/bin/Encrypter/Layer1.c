@@ -1,10 +1,8 @@
 /*
 * @Author: Prabhas Kumar
-* @Assistant: OpenAI ChatGPT 4o
-
+* @Assistant: OpenAI ChatGPT 4.0
 * @Created: May 29'24
 * @Updated: None
-
 * @Project: Access-0-Security-Suite 's Encryption Version 1
 * @File: Layer1 [C script]
 */
@@ -17,7 +15,7 @@
 #include <openssl/rand.h>
 
 #define SECRET_KEY_PATH "../../keypair1_secret_key.bin"
-#define DATA_FOLDER_PATH "../../../Data/decrypted"
+#define DATA_FOLDER_PATH "../../../Data/decrypted/"
 #define OUTPUT_FOLDER_PATH "../../../Data/"
 
 // Function to encrypt a single file
@@ -120,6 +118,12 @@ int main() {
             snprintf(output_file, sizeof(output_file), "%s%s.enc", OUTPUT_FOLDER_PATH, entry->d_name);
 
             encrypt_file(input_file, output_file, key);
+
+            // Remove the original unencrypted file
+            if (remove(input_file) != 0) {
+                perror("remove");
+                return EXIT_FAILURE;
+            }
         }
     }
 
