@@ -9,11 +9,31 @@
 #include <dirent.h>
 #include <unistd.h>
 #include <time.h>
+#include <termios.h>
 
 #define DATA_DIR "../Data"
 #define LOG_FILE "./log.order"
 #define AES_KEYLEN 32
 #define AES_IVLEN 16
+
+// Function to hide key input
+void read_custom_key_hidden(char *key, size_t key_len) {
+    struct termios oldt, newt;
+    printf("Enter a custom key (up to 64 characters): ");
+    tcgetattr(STDIN_FILENO, &oldt);
+    newt = oldt;
+    newt.c_lflag &= ~ECHO;
+    tcsetattr(STDIN_FILENO, TCSANOW, &newt);
+    fgets(key, key_len, stdin);
+    tcsetattr(STDIN_FILENO, TCSANOW, &oldt);
+    printf("\n");
+
+    // Remove newline character if present
+    size_t len = strlen(key);
+    if (key[len - 1] == '\n') {
+        key[len - 1] = '\0';
+    }
+}
 
 void generate_random_string(char *str, size_t length) {
     const char charset[] = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
@@ -22,17 +42,6 @@ void generate_random_string(char *str, size_t length) {
         *str++ = charset[index];
     }
     *str = '\0';
-}
-
-// Function to read the custom key from the user
-void read_custom_key(uint8_t *key, size_t key_len) {
-    char input[65]; // Allow up to 64 characters for the key
-    printf("Enter a custom key (up to 64 characters): ");
-    fgets(input, sizeof(input), stdin);
-
-    // Ensure the key is the correct length
-    memset(key, 0, key_len);
-    strncpy((char*)key, input, key_len - 1);
 }
 
 // Function to check if a file exists
@@ -117,13 +126,14 @@ int get_key_files_not_in_log(char ***key_files, size_t *count) {
             int in_log = 0;
             rewind(log_file);
             while (fgets(line, sizeof(line), log_file)) {
-                if (strstr(line, entry->d_name)) {
+                char *log_filename = strtok(line, ":");
+                if (log_filename && strstr(log_filename, entry->d_name)) {
                     in_log = 1;
                     break;
                 }
             }
 
-            if (!in_log) {
+            if (in_log) {
                 *key_files = realloc(*key_files, (*count + 1) * sizeof(char*));
                 (*key_files)[*count] = malloc(strlen(entry->d_name) + 1);
                 strcpy((*key_files)[*count], entry->d_name);
@@ -144,7 +154,7 @@ void handle_logging(const char *keypair_name, const char *encrypted_name, const 
         fprintf(stderr, "Failed to open log file\n");
         return;
     }
-    fprintf(log_file, "%s: %s: ../Data/%s\n", original_file_name, encrypted_name, keypair_name);
+    fprintf(log_file, "%s: %s: CUSTOM\n", original_file_name, encrypted_name);
     fclose(log_file);
 }
 
@@ -159,8 +169,8 @@ int move_file_to_parent(const char *filename) {
 int main() {
     srand(time(NULL)); // Seed the random number generator
 
-    uint8_t key[AES_KEYLEN];
-    read_custom_key(key, sizeof(key));
+    char key[AES_KEYLEN];
+    read_custom_key_hidden(key, sizeof(key));
 
     char **key_files;
     size_t key_files_count;
@@ -191,7 +201,7 @@ int main() {
 
         uint8_t *ciphertext;
         size_t ciphertext_len;
-        if (!encrypt_data(key_buffer, key_len, key, iv, &ciphertext, &ciphertext_len)) {
+        if (!encrypt_data(key_buffer, key_len, (uint8_t *)key, iv, &ciphertext, &ciphertext_len)) {
             fprintf(stderr, "Failed to encrypt key file: %s\n", key_files[i]);
             free(key_buffer);
             continue;
@@ -238,12 +248,9 @@ int main() {
     fread(log_buffer, 1, log_size, log_file);
     fclose(log_file);
 
-    char encrypted_log_name[10];
-    generate_random_string(encrypted_log_name, 9);
-
     uint8_t *log_ciphertext;
     size_t log_ciphertext_len;
-    if (!encrypt_data(log_buffer, log_size, key, iv, &log_ciphertext, &log_ciphertext_len)) {
+    if (!encrypt_data(log_buffer, log_size, (uint8_t *)key, iv, &log_ciphertext, &log_ciphertext_len)) {
         fprintf(stderr, "Failed to encrypt log file\n");
         free(log_buffer);
         exit(EXIT_FAILURE);
