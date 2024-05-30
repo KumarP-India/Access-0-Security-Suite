@@ -131,7 +131,9 @@ int main(int argc, char *argv[]) {
     }
 
     char key_file[512];
-    snprintf(key_file, sizeof(key_file), "%s/secret_key_%d.bin", KEYPAIR_DIR, key_index);
+    // Randomly choose between secret_key and public_key
+    const char *key_type = rand() % 2 == 0 ? "secret_key" : "public_key";
+    snprintf(key_file, sizeof(key_file), "%s/%s_%d.bin", KEYPAIR_DIR, key_type, key_index);
     if (!is_valid_file(key_file)) {
         fprintf(stderr, "Invalid key index: %d\n", key_index + 1);
         exit(EXIT_FAILURE);
