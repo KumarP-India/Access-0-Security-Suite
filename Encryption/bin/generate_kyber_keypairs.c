@@ -6,7 +6,7 @@
 #include <oqs/oqs.h>
 
 // Define the fixed output directory
-#define OUTPUT_DIR "../../Data/"
+#define OUTPUT_DIR "../Data/"
 
 // Function to check if the path exists and is a directory
 int is_valid_directory(const char *path) {
