@@ -102,13 +102,13 @@ int encrypt_file(const char *input_path, const char *output_path, uint8_t *key, 
 }
 
 // Function to handle logging
-void handle_logging(const char *keypair_name, const char *x, int clear_log) {
+void handle_logging(const char *keypair_name, const char *encrypted_name, const char *original_file_name, int clear_log) {
     FILE *log_file = fopen(LOG_FILE, clear_log ? "w" : "a");
     if (!log_file) {
         fprintf(stderr, "Failed to open log file\n");
         return;
     }
-    fprintf(log_file, "../Data/%s: %s: File\n", keypair_name, x);
+    fprintf(log_file, "%s: %s: ../Data/%s\n", original_file_name, encrypted_name, keypair_name);
     fclose(log_file);
 }
 
@@ -171,7 +171,7 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    handle_logging(strrchr(key_file, '/') + 1, encrypted_name, clear_log);
+    handle_logging(strrchr(key_file, '/') + 1, encrypted_name, strrchr(data_path, '/') + 1, clear_log);
 
     printf("Encrypted %s to %s\n", data_path, output_path);
     return 0;
