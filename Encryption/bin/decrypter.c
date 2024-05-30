@@ -11,6 +11,7 @@
 #include <termios.h>
 
 #define DECRYPTED_DIR "../Decrypted"
+#define IV_SIZE 16
 
 // Function to check if the path exists and is a file
 int is_valid_file(const char *path) {
@@ -50,12 +51,15 @@ void get_hidden_input(char *input, size_t len) {
 }
 
 // Function to decrypt a file using AES-256
-int decrypt_file(const char *input_path, const char *output_path, uint8_t *key, uint8_t *iv) {
+int decrypt_file(const char *input_path, const char *output_path, uint8_t *key) {
     FILE *input_file = fopen(input_path, "rb");
     FILE *output_file = fopen(output_path, "wb");
     if (!input_file || !output_file) {
         return 0; // Failed to open files
     }
+
+    uint8_t iv[IV_SIZE];
+    fread(iv, 1, IV_SIZE, input_file);
 
     EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
     if (!ctx) {
@@ -110,7 +114,6 @@ int main(int argc, char *argv[]) {
     }
 
     uint8_t key[32];
-    uint8_t iv[AES_BLOCK_SIZE] = {0}; // Assuming the IV is all zeros (or adapt as needed)
 
     if (mode == 0) {
         if (!key_file || !is_valid_file(key_file)) {
@@ -135,7 +138,7 @@ int main(int argc, char *argv[]) {
     char output_path[512];
     snprintf(output_path, sizeof(output_path), "%s/%s", DECRYPTED_DIR, new_name);
 
-    if (!decrypt_file(file_path, output_path, key, iv)) {
+    if (!decrypt_file(file_path, output_path, key)) {
         fprintf(stderr, "Failed to decrypt file: %s\n", file_path);
         exit(EXIT_FAILURE);
     }
