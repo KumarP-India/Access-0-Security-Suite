@@ -116,3 +116,7 @@ My encryption scheme involves multiple layers and nested encryption. I will use 
 1. Support for more OS and architectures.
 2. Automatic encryption of all files in folders and subfolders.
 3. There is small chance that randome generated file name would already be used earlier for some other data. Handle this by testing and generating new ones till finding unique name.
+
+## Troubleshooting
+
+- If a libary can't be found or similar error, try opening `setup` file and verifying all variables defined there are correct for your machine. `setup` all varibales are changeabe.
