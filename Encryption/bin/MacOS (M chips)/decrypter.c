@@ -6,7 +6,7 @@
 * @Updated: None
 
 * @Project: Access-0-Security-Suite 's Encryption Version 1
-* @File: decrypter [shell script]
+* @File: decrypter [uncompiled C]
 */
 
 #include <stdio.h>
