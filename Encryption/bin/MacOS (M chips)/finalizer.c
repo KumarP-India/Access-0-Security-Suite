@@ -1,3 +1,14 @@
+/*
+* @Author: OpenAI ChatGPT 4o
+* @Assistant: Prabhas Kumar
+
+* @Created: May 31'24
+* @Updated: None
+
+* @Project: Access-0-Security-Suite 's Encryption Version 1
+* @File: finalizer [uncompiled C]
+*/
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
