@@ -30,17 +30,17 @@ if [[ "$(uname)" == "Darwin" ]]; then
         echo -e "${GREEN}[Passed] ${NC}Apple M chip (ARM architecture) detected."
 
 
-        # We will now compile all of the c files. Note as mentioned in ../README.md make changes to variables below if need arises.
+        # We will now compile all of the c files. Note as mentioned in ../../../README.md make changes to variables below if need arises.
     
         # Define variables for Homebrew paths
         HOMEBREW_PREFIX=$(brew --prefix)
         INCLUDE_PATH="$HOMEBREW_PREFIX/include"
         LIB_PATH="$HOMEBREW_PREFIX/lib"
         
-        gcc "../bin/MacOS (M chips)/generate_kyber_keypairs.c" -o "../New_Keys" -I"$INCLUDE_PATH" -L"$LIB_PATH" -loqs -lcrypto
-        gcc "../bin/MacOS (M chips)/encrypter.c" -o "../Encrypter" -I"$INCLUDE_PATH" -L"$LIB_PATH" -loqs -lcrypto
-        gcc "../bin/MacOS (M chips)/decrypter.c" -o "../Decrypter" -I"$INCLUDE_PATH" -L"$LIB_PATH" -loqs -lcrypto
-        gcc "../bin/MacOS (M chips)/finalizer.c" -o "../Cleaner" -I"$INCLUDE_PATH" -L"$LIB_PATH" -loqs -lcrypto
+        gcc "../../../bin/MacOS (M chips)/generate_kyber_keypairs.c" -o "../../../New_Keys" -I"$INCLUDE_PATH" -L"$LIB_PATH" -loqs -lcrypto
+        gcc "../../../bin/MacOS (M chips)/encrypter.c" -o "../../../Encrypter" -I"$INCLUDE_PATH" -L"$LIB_PATH" -loqs -lcrypto
+        gcc "../../../bin/MacOS (M chips)/decrypter.c" -o "../../../Decrypter" -I"$INCLUDE_PATH" -L"$LIB_PATH" -loqs -lcrypto
+        gcc "../../../bin/MacOS (M chips)/finalizer.c" -o "../../../Cleaner" -I"$INCLUDE_PATH" -L"$LIB_PATH" -loqs -lcrypto
     elif [[ "$ARCHITECTURE" == "x86_64" ]]; then
         echo -e "${RED}[FAILED] ${NC}Intel x86 processor detected."
     else
