@@ -7,33 +7,13 @@
 #include <openssl/rand.h>
 #include <openssl/aes.h>
 #include <dirent.h>
-#include <unistd.h>
-#include <time.h>
 #include <termios.h>
+#include <unistd.h>
 
 #define DATA_DIR "../Data"
 #define LOG_FILE "./log.order"
 #define AES_KEYLEN 32
 #define AES_IVLEN 16
-
-// Function to hide key input
-void read_custom_key_hidden(char *key, size_t key_len) {
-    struct termios oldt, newt;
-    printf("Enter a custom key (up to 64 characters): ");
-    tcgetattr(STDIN_FILENO, &oldt);
-    newt = oldt;
-    newt.c_lflag &= ~ECHO;
-    tcsetattr(STDIN_FILENO, TCSANOW, &newt);
-    fgets(key, key_len, stdin);
-    tcsetattr(STDIN_FILENO, TCSANOW, &oldt);
-    printf("\n");
-
-    // Remove newline character if present
-    size_t len = strlen(key);
-    if (key[len - 1] == '\n') {
-        key[len - 1] = '\0';
-    }
-}
 
 void generate_random_string(char *str, size_t length) {
     const char charset[] = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
@@ -44,112 +24,76 @@ void generate_random_string(char *str, size_t length) {
     *str = '\0';
 }
 
-// Function to check if a file exists
-int file_exists(const char *filename) {
-    struct stat buffer;
-    return (stat(filename, &buffer) == 0);
+void get_hidden_input(char *input, size_t len) {
+    struct termios oldt, newt;
+    printf("Enter custom key: ");
+    tcgetattr(STDIN_FILENO, &oldt);
+    newt = oldt;
+    newt.c_lflag &= ~(ECHO);
+    tcsetattr(STDIN_FILENO, TCSANOW, &newt);
+    fgets(input, len, stdin);
+    tcsetattr(STDIN_FILENO, TCSANOW, &oldt);
+    input[strcspn(input, "\n")] = '\0';
+    printf("\n");
 }
 
-// Function to read a file into a buffer
-int read_file(const char *filename, uint8_t **buffer, size_t *length) {
-    FILE *file = fopen(filename, "rb");
-    if (!file) return 0;
+int is_valid_file(const char *path) {
+    struct stat statbuf;
+    if (stat(path, &statbuf) != 0) {
+        return 0;
+    }
+    if (S_ISREG(statbuf.st_mode)) {
+        return 1;
+    }
+    return 0;
+}
 
-    fseek(file, 0, SEEK_END);
-    *length = ftell(file);
-    fseek(file, 0, SEEK_SET);
-
-    *buffer = malloc(*length);
-    if (!*buffer) {
-        fclose(file);
+int encrypt_file(const char *input_path, const char *output_path, uint8_t *key, uint8_t *iv) {
+    FILE *input_file = fopen(input_path, "rb");
+    FILE *output_file = fopen(output_path, "wb");
+    if (!input_file || !output_file) {
         return 0;
     }
 
-    fread(*buffer, 1, *length, file);
-    fclose(file);
-    return 1;
-}
+    fwrite(iv, 1, AES_IVLEN, output_file);
 
-// Function to encrypt data using AES-256
-int encrypt_data(uint8_t *plaintext, size_t plaintext_len, uint8_t *key, uint8_t *iv, uint8_t **ciphertext, size_t *ciphertext_len) {
     EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
-    if (!ctx) return 0;
+    if (!ctx) {
+        return 0;
+    }
 
     if (EVP_EncryptInit_ex(ctx, EVP_aes_256_cbc(), NULL, key, iv) != 1) {
         EVP_CIPHER_CTX_free(ctx);
         return 0;
     }
 
-    int len;
-    *ciphertext = malloc(plaintext_len + AES_BLOCK_SIZE);
-    if (!*ciphertext) {
-        EVP_CIPHER_CTX_free(ctx);
-        return 0;
+    uint8_t buffer[4096];
+    uint8_t ciphertext[4096 + EVP_CIPHER_block_size(EVP_aes_256_cbc())];
+    int len, ciphertext_len;
+
+    while ((len = fread(buffer, 1, sizeof(buffer), input_file)) > 0) {
+        if (EVP_EncryptUpdate(ctx, ciphertext, &ciphertext_len, buffer, len) != 1) {
+            EVP_CIPHER_CTX_free(ctx);
+            return 0;
+        }
+        fwrite(ciphertext, 1, ciphertext_len, output_file);
     }
 
-    if (EVP_EncryptUpdate(ctx, *ciphertext, &len, plaintext, plaintext_len) != 1) {
+    if (EVP_EncryptFinal_ex(ctx, ciphertext, &ciphertext_len) != 1) {
         EVP_CIPHER_CTX_free(ctx);
-        free(*ciphertext);
         return 0;
     }
-    *ciphertext_len = len;
-
-    if (EVP_EncryptFinal_ex(ctx, *ciphertext + len, &len) != 1) {
-        EVP_CIPHER_CTX_free(ctx);
-        free(*ciphertext);
-        return 0;
-    }
-    *ciphertext_len += len;
+    fwrite(ciphertext, 1, ciphertext_len, output_file);
 
     EVP_CIPHER_CTX_free(ctx);
+    fclose(input_file);
+    fclose(output_file);
+
     return 1;
 }
 
-// Function to get the list of key files not in log.order
-int get_key_files_not_in_log(char ***key_files, size_t *count) {
-    DIR *dir = opendir(DATA_DIR);
-    if (!dir) return 0;
-
-    FILE *log_file = fopen(LOG_FILE, "r");
-    if (!log_file) {
-        closedir(dir);
-        return 0;
-    }
-
-    *key_files = NULL;
-    *count = 0;
-    struct dirent *entry;
-    char line[256];
-
-    while ((entry = readdir(dir)) != NULL) {
-        if (strstr(entry->d_name, ".bin")) {
-            int in_log = 0;
-            rewind(log_file);
-            while (fgets(line, sizeof(line), log_file)) {
-                char *log_filename = strtok(line, ":");
-                if (log_filename && strstr(log_filename, entry->d_name)) {
-                    in_log = 1;
-                    break;
-                }
-            }
-
-            if (in_log) {
-                *key_files = realloc(*key_files, (*count + 1) * sizeof(char*));
-                (*key_files)[*count] = malloc(strlen(entry->d_name) + 1);
-                strcpy((*key_files)[*count], entry->d_name);
-                (*count)++;
-            }
-        }
-    }
-
-    closedir(dir);
-    fclose(log_file);
-    return 1;
-}
-
-// Function to handle logging
-void handle_logging(const char *keypair_name, const char *encrypted_name, const char *original_file_name, int clear_log) {
-    FILE *log_file = fopen(LOG_FILE, clear_log ? "w" : "a");
+void handle_logging(const char *keypair_name, const char *encrypted_name, const char *original_file_name) {
+    FILE *log_file = fopen(LOG_FILE, "a");
     if (!log_file) {
         fprintf(stderr, "Failed to open log file\n");
         return;
@@ -158,26 +102,73 @@ void handle_logging(const char *keypair_name, const char *encrypted_name, const 
     fclose(log_file);
 }
 
-// Function to move the file to parent directory
-int move_file_to_parent(const char *filename) {
-    char new_path[512];
-    snprintf(new_path, sizeof(new_path), "../../%s", filename);
-    return rename(filename, new_path);
+void read_log_file(char ***log_entries, size_t *count) {
+    FILE *log_file = fopen(LOG_FILE, "r");
+    if (!log_file) {
+        *log_entries = NULL;
+        *count = 0;
+        return;
+    }
+
+    char **entries = NULL;
+    size_t entry_count = 0;
+    char line[512];
+
+    while (fgets(line, sizeof(line), log_file)) {
+        entries = realloc(entries, sizeof(char *) * (entry_count + 1));
+        entries[entry_count] = strdup(line);
+        entry_count++;
+    }
+
+    fclose(log_file);
+    *log_entries = entries;
+    *count = entry_count;
 }
 
-// Main function
-int main() {
-    srand(time(NULL)); // Seed the random number generator
-
-    char key[AES_KEYLEN];
-    read_custom_key_hidden(key, sizeof(key));
-
-    char **key_files;
-    size_t key_files_count;
-    if (!get_key_files_not_in_log(&key_files, &key_files_count)) {
-        fprintf(stderr, "Failed to get key files\n");
-        exit(EXIT_FAILURE);
+int is_in_log_file(const char *filename, char **log_entries, size_t log_count) {
+    for (size_t i = 0; i < log_count; ++i) {
+        char *entry = strdup(log_entries[i]);
+        char *token = strtok(entry, ":");
+        if (strcmp(token, filename) == 0) {
+            free(entry);
+            return 1;
+        }
+        free(entry);
     }
+    return 0;
+}
+
+void delete_file(const char *filepath) {
+    if (remove(filepath) != 0) {
+        fprintf(stderr, "Failed to delete file: %s\n", filepath);
+    }
+}
+
+void delete_files_in_directory(const char *directory, const char *extension) {
+    DIR *dir = opendir(directory);
+    if (!dir) {
+        return;
+    }
+
+    struct dirent *entry;
+    while ((entry = readdir(dir))) {
+        if (strstr(entry->d_name, extension)) {
+            char filepath[512];
+            snprintf(filepath, sizeof(filepath), "%s/%s", directory, entry->d_name);
+            delete_file(filepath);
+        }
+    }
+
+    closedir(dir);
+}
+
+int main() {
+    srand(time(NULL));
+
+    char custom_key[64];
+    get_hidden_input(custom_key, sizeof(custom_key));
+    uint8_t key[AES_KEYLEN];
+    strncpy((char *)key, custom_key, sizeof(key));
 
     uint8_t iv[AES_IVLEN];
     if (!RAND_bytes(iv, sizeof(iv))) {
@@ -185,102 +176,51 @@ int main() {
         exit(EXIT_FAILURE);
     }
 
-    for (size_t i = 0; i < key_files_count; ++i) {
-        char key_file_path[512];
-        snprintf(key_file_path, sizeof(key_file_path), "%s/%s", DATA_DIR, key_files[i]);
+    char **log_entries;
+    size_t log_count;
+    read_log_file(&log_entries, &log_count);
 
-        uint8_t *key_buffer;
-        size_t key_len;
-        if (!read_file(key_file_path, &key_buffer, &key_len)) {
-            fprintf(stderr, "Failed to read key file: %s\n", key_files[i]);
-            continue;
-        }
-
-        char encrypted_name[10];
-        generate_random_string(encrypted_name, 9);
-
-        uint8_t *ciphertext;
-        size_t ciphertext_len;
-        if (!encrypt_data(key_buffer, key_len, (uint8_t *)key, iv, &ciphertext, &ciphertext_len)) {
-            fprintf(stderr, "Failed to encrypt key file: %s\n", key_files[i]);
-            free(key_buffer);
-            continue;
-        }
-
-        free(key_buffer);
-
-        char output_path[512];
-        snprintf(output_path, sizeof(output_path), "%s/%s.enc", DATA_DIR, encrypted_name);
-        FILE *output_file = fopen(output_path, "wb");
-        if (!output_file) {
-            fprintf(stderr, "Failed to open output file: %s\n", output_path);
-            free(ciphertext);
-            continue;
-        }
-
-        fwrite(iv, 1, AES_IVLEN, output_file); // Write IV to the beginning of the output file
-        fwrite(ciphertext, 1, ciphertext_len, output_file);
-        fclose(output_file);
-        free(ciphertext);
-
-        handle_logging(key_files[i], encrypted_name, key_files[i], 0);
-
-        if (remove(key_file_path) != 0) {
-            fprintf(stderr, "Failed to delete key file: %s\n", key_files[i]);
-        }
-
-        free(key_files[i]);
-    }
-    free(key_files);
-
-    // Encrypt log.order
-    FILE *log_file = fopen(LOG_FILE, "rb");
-    if (!log_file) {
-        fprintf(stderr, "Failed to open log file\n");
+    DIR *dir = opendir(DATA_DIR);
+    if (!dir) {
+        fprintf(stderr, "Failed to open directory: %s\n", DATA_DIR);
         exit(EXIT_FAILURE);
     }
 
-    fseek(log_file, 0, SEEK_END);
-    size_t log_size = ftell(log_file);
-    rewind(log_file);
+    struct dirent *entry;
+    while ((entry = readdir(dir))) {
+        if (strstr(entry->d_name, ".bin")) {
+            if (!is_in_log_file(entry->d_name, log_entries, log_count)) {
+                char input_path[512];
+                snprintf(input_path, sizeof(input_path), "%s/%s", DATA_DIR, entry->d_name);
 
-    uint8_t *log_buffer = malloc(log_size);
-    fread(log_buffer, 1, log_size, log_file);
-    fclose(log_file);
+                char encrypted_name[10];
+                generate_random_string(encrypted_name, 9);
 
-    uint8_t *log_ciphertext;
-    size_t log_ciphertext_len;
-    if (!encrypt_data(log_buffer, log_size, (uint8_t *)key, iv, &log_ciphertext, &log_ciphertext_len)) {
-        fprintf(stderr, "Failed to encrypt log file\n");
-        free(log_buffer);
-        exit(EXIT_FAILURE);
+                char output_path[512];
+                snprintf(output_path, sizeof(output_path), "%s/%s.enc", DATA_DIR, encrypted_name);
+
+                if (encrypt_file(input_path, output_path, key, iv)) {
+                    handle_logging(entry->d_name, encrypted_name, input_path);
+                } else {
+                    fprintf(stderr, "Failed to encrypt file: %s\n", input_path);
+                }
+            }
+        }
     }
 
-    free(log_buffer);
+    closedir(dir);
 
     char log_output_path[512];
-    snprintf(log_output_path, sizeof(log_output_path), "%s.enc", LOG_FILE);
-    FILE *encrypted_log_file = fopen(log_output_path, "wb");
-    if (!encrypted_log_file) {
-        fprintf(stderr, "Failed to open encrypted log file\n");
-        free(log_ciphertext);
+    snprintf(log_output_path, sizeof(log_output_path), "../../log.order.enc");
+
+    if (!encrypt_file(LOG_FILE, log_output_path, key, iv)) {
+        fprintf(stderr, "Failed to encrypt log file\n");
         exit(EXIT_FAILURE);
     }
 
-    fwrite(iv, 1, AES_IVLEN, encrypted_log_file); // Write IV to the beginning of the output file
-    fwrite(log_ciphertext, 1, log_ciphertext_len, encrypted_log_file);
-    fclose(encrypted_log_file);
-    free(log_ciphertext);
+    delete_files_in_directory(DATA_DIR, ".bin");
+    delete_file(LOG_FILE);
 
-    if (!move_file_to_parent(log_output_path)) {
-        fprintf(stderr, "Failed to move encrypted log file\n");
-        exit(EXIT_FAILURE);
-    }
-
-    if (remove(LOG_FILE) != 0) {
-        fprintf(stderr, "Failed to delete log file\n");
-    }
-
-    printf("Process completed successfully.\n");
+    printf("Encryption and cleanup completed successfully.\n");
     return 0;
 }
